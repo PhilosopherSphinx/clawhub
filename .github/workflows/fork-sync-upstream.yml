@@ -1,0 +1,44 @@
+name: Sync fork with upstream
+
+# Keeps this fork's default branch level with the upstream repository.
+# Runs Mondays; can also be started by hand from the Actions tab.
+on:
+  schedule:
+    # 06:00 UTC Monday (09:00 MSK).
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never let two syncs write the branch at the same time.
+concurrency:
+  group: fork-sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge upstream into main
+        env:
+          # The default token is deliberate: pushes made with GITHUB_TOKEN do not
+          # start further workflow runs, so a sync never triggers this fork's CI.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Non-destructive: fast-forwards when possible, merges when the fork has
+          # its own commits, and fails loudly on a real conflict instead of forcing.
+          response="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch=main)"
+
+          merge_type="$(printf '%s' "$response" | jq -r '.merge_type // "unknown"')"
+          base_branch="$(printf '%s' "$response" | jq -r '.base_branch // "unknown"')"
+
+          echo "merge_type=${merge_type}"
+          {
+            echo "### Fork sync"
+            echo ""
+            echo "- base branch: \`${base_branch}\`"
+            echo "- result: \`${merge_type}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
